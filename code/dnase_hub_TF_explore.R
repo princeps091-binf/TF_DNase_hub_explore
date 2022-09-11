@@ -49,6 +49,7 @@ produce_rle_from_bigwig_fn<-function(grange_set,bigWig_file){
 candidate_hub_file<-"~/Documents/multires_bhicect/Bootstrapp_fn/data/DAGGER_tbl/trans_res/GM12878_union_top_trans_res_dagger_tbl.Rda"
 spec_res_file<-"~/Documents/multires_bhicect/data/GM12878/spec_res/"
 DNase_bigwig<-"~/Documents/multires_bhicect/data/epi_data/GM12878/DNase/ENCFF901GZH_DNase_GM12878.bigWig"
+H3K27ac_bigwig<-"~/Documents/multires_bhicect/data/epi_data/GM12878/H3K27ac/ENCFF180LKW_GM12878_FC.bigWig"
 # Hotspot have a more expected size distribution
 Dnase_hotspot_file<-"~/Documents/multires_bhicect/data/epi_data/GM12878/DNase/ENCSR000EMT_DNase_GM12878_hotspots.bed"
 PAX5_bigWig_file<-"~/Documents/multires_bhicect/data/epi_data/GM12878/PAX5/ENCFF267GFQ_PAX5_GM12878.bigWig"
@@ -59,6 +60,7 @@ DNase_GRange<-import.bed(Dnase_hotspot_file)
 PAX5_GRange<-import.bedGraph(PAX5_bed_file)
 bwf_manual <-BigWigFile(PAX5_bigWig_file)
 bwf_dnase <-BigWigFile(DNase_bigwig)
+bwf_H3K27ac <-BigWigFile(H3K27ac_bigwig)
 
 #Read coverage over a region from a bigWig file
 sel <- rtracklayer::BigWigSelection(DNase_GRange)
@@ -75,15 +77,18 @@ hub_tbl<-Build_coord_fn(hub_tbl,spec_res_file) %>%
     Build_GRange_fn(chromo,res,bins,res_num)
   }))
 plan(sequential)
+hub_tbl %>% 
+  filter(res=="5kb" & chr == "chr19")
 tmp_hub<-(hub_tbl %>% 
-  filter(res=="10kb" & chr == "chr1" & node == "10kb_69_2346_180460000_181140000") %>% 
+  filter(res=="5kb" & chr == "chr19" & node == "5kb_20_190_7750000_7845000") %>% 
   dplyr::select(GRange) %>% 
   unlist)[[1]]
-chr_DNase_GRange<-DNase_GRange[seqnames(DNase_GRange)=="chr1"]
-chr_TF_GRange<-PAX5_GRange[seqnames(PAX5_GRange)=="chr1"]
+chr_DNase_GRange<-DNase_GRange[seqnames(DNase_GRange)=="chr19"]
+chr_TF_GRange<-PAX5_GRange[seqnames(PAX5_GRange)=="chr19"]
 
 tf_rle<-produce_rle_from_bigwig_fn(tmp_hub,PAX5_bigWig_file)
 dnase_rle<-produce_rle_from_bigwig_fn(tmp_hub,DNase_bigwig)
+H3K27ac_rle<-produce_rle_from_bigwig_fn(tmp_hub,H3K27ac_bigwig)
 
 dnase_inter_tbl<-as_tibble(chr_DNase_GRange[unique(queryHits(findOverlaps(chr_DNase_GRange,tmp_hub[1])))],set="dnase")
 TF_inter_tbl<-as_tibble(chr_TF_GRange[unique(queryHits(findOverlaps(chr_TF_GRange,tmp_hub[1])))],set="TF")
@@ -105,3 +110,12 @@ tibble(pos=start(tmp_hub)[1]:end(tmp_hub)[1],value=as.numeric(tf_rle$chr1[start(
   geom_segment(data = dnase_inter_tbl,aes(x=start,y=9,xend=end,yend=9),size=5)+
   geom_segment(data = TF_inter_tbl,aes(x=start,y=9.5,xend=end,yend=9.5),size=5)+
   geom_hline(yintercept = 0)
+
+
+tibble(pos=start(tmp_hub)[1]:end(tmp_hub)[1],value=as.numeric(H3K27ac_rle$chr19[start(tmp_hub)[1]:end(tmp_hub)[1]]),set="H3K27ac") %>% 
+  bind_rows(.,tibble(pos=start(tmp_hub)[1]:end(tmp_hub)[1],value=as.numeric(tf_rle$chr19[start(tmp_hub)[1]:end(tmp_hub)[1]]),set="TF")) %>% 
+  ggplot(.,aes(pos,sqrt(value)))+
+  geom_line(size=0.05)+
+  geom_segment(data = TF_inter_tbl,aes(x=start,y=6.5,xend=end,yend=6.5),size=10)+
+  geom_hline(yintercept = 1)+
+  facet_grid(set~.)
