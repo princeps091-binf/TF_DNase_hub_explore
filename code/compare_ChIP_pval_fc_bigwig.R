@@ -1,8 +1,8 @@
 library(rtracklayer)
 library(GenomicRanges)
-library(RcppRoll)
 library(tidyverse)
 library(furrr)
+
 library(vroom)
 options(scipen = 999999999)
 res_set <- c('1Mb','500kb','100kb','50kb','10kb','5kb')
@@ -34,18 +34,24 @@ Build_GRange_fn<-function(chromo,res,bins,res_num){
   return(inter_cl_Grange)
   
 }
+
 produce_rle_from_bigwig_fn<-function(grange_set,bigWig_file){
   sel <- rtracklayer::BigWigSelection(grange_set)
   coverage_ranges <- rtracklayer::import.bw(bigWig_file, selection = sel)
   coverage_rle <- GenomicRanges::coverage(coverage_ranges, weight = GenomicRanges::score(coverage_ranges))
   return(coverage_rle)
 }
-#-----------------------------------------------------------------
+
+tf_fc_bigWig_file<-"~/Documents/multires_bhicect/data/epi_data/GM12878/PAX5/ENCFF267GFQ_PAX5_FC_GM12878.bigWig"
+tf_pv_bigWig_file<-"~/Documents/multires_bhicect/data/epi_data/GM12878/PAX5/ENCFF955FMV_PAX5_pval_GM12878.bigWig"
 dat_file<-"~/Documents/multires_bhicect/data/GM12878/"
-tf_bigWig_file<-"~/Documents/multires_bhicect/data/epi_data/GM12878/PAX5/ENCFF267GFQ_PAX5_FC_GM12878.bigWig"
-bwf_manual <-BigWigFile(tf_bigWig_file)
+
+bwfc_manual <-BigWigFile(tf_fc_bigWig_file)
+bwpv_manual <-BigWigFile(tf_pv_bigWig_file)
+
 dat_res<-"50kb"
-chromo<-"chr19"
+chromo<-"chr20"
+
 chr_dat<-hic_dat_in(dat_file,dat_res,chromo)
 bin_tbl<-tibble(chr=chromo,res=dat_res,bins=unique(c(chr_dat$X1,chr_dat$X2)))
 rm(chr_dat)
@@ -55,62 +61,36 @@ bin_tbl<-bin_tbl %>%
     Build_GRange_fn(chromo,res,bins,res_num)
   }))
 plan(sequential)
-plan(multisession,workers=5)
-bin_tbl<-bin_tbl %>%
-#  slice(1:5) %>% 
-  mutate(fc_stat=future_pmap_dfr(list(chr,GRange),function(chromo,GRange){
-    tf_rle<-produce_rle_from_bigwig_fn(GRange,tf_bigWig_file)[[chromo]]
-    value_tbl<-tibble(value=as.numeric(tf_rle[start(GRange):end(GRange)]))
-    return(value_tbl %>% summarise(fc=sum(value>0),sign.fc=sum(value>1),n=n()))
-    
-    }))
-plan(sequential)
 
 plan(multisession,workers=5)
 bin_tbl<-bin_tbl %>%
-#    slice(1:5) %>% 
-#  filter(bins==17450000)
+  #    slice(1:5) %>% 
+  #  filter(bins==17450000)
   mutate(fc_d=future_pmap(list(chr,GRange),function(chromo,GRange){
-    tf_rle<-produce_rle_from_bigwig_fn(GRange,tf_bigWig_file)[[chromo]]
+    tf_rle<-produce_rle_from_bigwig_fn(GRange,tf_fc_bigWig_file)[[chromo]]
     bin_bw_dat_tbl<-tibble(pos=start(GRange):end(GRange),value=as.numeric(tf_rle[start(GRange):end(GRange)]))
     sign_pos<-bin_bw_dat_tbl$pos[which(bin_bw_dat_tbl$value>1)]
     border_pos<-which(diff(sign_pos)>1)
-    tmp_d<-tibble(chr=chromo,start=c(sign_pos[1],sign_pos[border_pos+1]),end=c(sign_pos[border_pos],sign_pos[length(sign_pos)])) #%>% 
-#      mutate(d=(end-start)+1) %>% 
-#      dplyr::select(d) %>% 
-#      unlist
+    tmp_d<-tibble(chr=chromo,start=c(sign_pos[1],sign_pos[border_pos+1]),end=c(sign_pos[border_pos],sign_pos[length(sign_pos)])) 
     return(tmp_d)
-
+    
   }))
 plan(sequential)
 
+sign_dna_tbl<-do.call(bind_rows,bin_tbl$fc_d) 
 
-sum(bin_tbl$fc_stat$fc)/sum(bin_tbl$fc_stat$n)
+odd_Grange<-   GRanges(seqnames=sign_dna_tbl$chr,
+                       ranges = IRanges(start=sign_dna_tbl$start,
+                                        end=sign_dna_tbl$end
+                       ))
+odd_Grange<-GenomicRanges::reduce(odd_Grange)
 
-bin_tbl %>% select(bins,fc_d) %>% 
-#  filter(bins==17450000) %>% 
-  unnest(cols=fc_d) %>% 
-#  filter(fc_d==0)
-  ggplot(.,aes(fc_d))+geom_density()+scale_x_log10()
+tf_chr_fc_rle<-produce_rle_from_bigwig_fn(odd_Grange,tf_fc_bigWig_file)
+tf_chr_pv_rle<-produce_rle_from_bigwig_fn(odd_Grange,tf_pv_bigWig_file)
 
+fc_value<-Views(tf_chr_fc_rle$chr20, start=start(odd_Grange), end=end(odd_Grange))
+pv_value<-Views(tf_chr_pv_rle$chr20, start=start(odd_Grange), end=end(odd_Grange))
 
-check_window<-(bin_tbl %>% 
-  filter(bins==39900000) %>% 
-  dplyr::select(GRange) %>% 
-  unlist)[[1]]
-tf_rle<-produce_rle_from_bigwig_fn(check_window,tf_bigWig_file)[[chromo]]
-
-bin_bw_dat_tbl<-tibble(pos=start(check_window):end(check_window),
-                       value=as.numeric(tf_rle[start(check_window):end(check_window)]))
-sign_pos<-bin_bw_dat_tbl$pos[which(bin_bw_dat_tbl$value>1)]
-border_pos<-which(diff(sign_pos)>1)
-tmp_d<-tibble(start=c(sign_pos[1],sign_pos[border_pos+1]),end=c(sign_pos[border_pos],sign_pos[length(sign_pos)])) %>% 
-  mutate(d=(end-start)+1)
-
-bin_bw_dat_tbl$roll_value<-roll_mean(bin_bw_dat_tbl$value, n = 19, align = "right", fill = NA)
-bin_bw_dat_tbl %>% 
-  mutate(roll_value=ifelse(is.na(roll_value),value,roll_value)) %>% 
-  ggplot(.,aes(pos,value))+
-  geom_line()+
-  geom_segment(data=tmp_d,aes(x=start,xend=end,y=4.75,yend=4.75))+
-  geom_hline(yintercept = 1)
+fc_val_vec<-unlist(lapply(fc_value[1:50],as.numeric))
+pv_val_vec<-unlist(lapply(pv_value[1:50],as.numeric))
+plot(fc_val_vec,pv_val_vec)
