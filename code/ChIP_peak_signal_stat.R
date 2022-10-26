@@ -42,7 +42,8 @@ produce_rle_from_bigwig_fn<-function(grange_set,bigWig_file){
 }
 
 #-----------------------------------------
-tf_bigWig_file<-"~/Documents/multires_bhicect/data/epi_data/GM12878/H3K27ac/ENCFF180LKW_GM12878_FC.bigWig"
+tf_bigWig_file<-"~/Documents/multires_bhicect/data/epi_data/GM12878/PAX5/ENCFF267GFQ_PAX5_FC_GM12878.bigWig"
+tf_pval_bigWig_file<-"~/Documents/multires_bhicect/data/epi_data/GM12878/PAX5/ENCFF955FMV_PAX5_pval_GM12878.bigWig"
 tf_bed_file<-"~/Documents/multires_bhicect/data/epi_data/GM12878/PAX5/ENCFF199FYD_PAX5_GM12878.bed.gz"
 dat_file<-"~/Documents/multires_bhicect/data/GM12878/"
 
@@ -50,22 +51,22 @@ tf_bed_GRange<-import.bedGraph(tf_bed_file)
 bwf_manual <-BigWigFile(tf_bigWig_file)
 
 tf_rle<-produce_rle_from_bigwig_fn(tf_bed_GRange,tf_bigWig_file)
-tf_rle_l<-as.list(tf_rle@listData)
-peak_tbl<-tibble(chr=as.character(seqnames(tf_bed_GRange)),start=start(tf_bed_GRange),end=end(tf_bed_GRange))
-plan(multisession,workers=5)
-peak_tbl<-peak_tbl %>% 
-  mutate(peak.val=future_pmap(list(chr,start,end),function(chromo,start,end){
-    tmp<-as.list(tf_rle@listData)[[chromo]]
-    as.numeric(tmp[start:end])
-  }))
-plan(sequential)
+pval_rle<-produce_rle_from_bigwig_fn(tf_bed_GRange,tf_pval_bigWig_file)
+chr_set<-unique(as.character(seqnames(tf_bed_GRange)))
+peak_tbl<-do.call(bind_rows,lapply(chr_set,function(chromo){
+  message(chromo)
+  chr_GRange<-tf_bed_GRange[seqnames(tf_bed_GRange)==chromo]
+  test<-viewApply(Views(as.list(tf_rle@listData)[[chromo]], start=start(chr_GRange), end=end(chr_GRange)),as.numeric)
+  return(tibble(chr=chromo,start=start(chr_GRange),end=end(chr_GRange),peak.pval=test))
+}))
 
 peak_tbl %>% 
-  dplyr::select(peak.val) %>% 
-  unnest(cols=c(peak.val)) %>% 
-  ggplot(.,aes(peak.val))+
+  dplyr::select(peak.fc) %>% 
+  unnest(cols=c(peak.fc)) %>% 
+  ggplot(.,aes(peak.fc))+
   geom_density()+
   scale_x_log10()
+ggsave(paste0("~/Documents/multires_bhicect/TF_DNase_hub_explore/img/",chromo,"PAX5_peak_signal_intensity_distribtion.png"))
 
 dat_res<-"50kb"
 chromo<-"chr22"

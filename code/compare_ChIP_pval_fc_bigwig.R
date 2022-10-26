@@ -91,6 +91,4 @@ tf_chr_pv_rle<-produce_rle_from_bigwig_fn(odd_Grange,tf_pv_bigWig_file)
 fc_value<-Views(tf_chr_fc_rle$chr20, start=start(odd_Grange), end=end(odd_Grange))
 pv_value<-Views(tf_chr_pv_rle$chr20, start=start(odd_Grange), end=end(odd_Grange))
 
-fc_val_vec<-unlist(lapply(fc_value[1:50],as.numeric))
-pv_val_vec<-unlist(lapply(pv_value[1:50],as.numeric))
-plot(fc_val_vec,pv_val_vec)
+plot(log10(unlist(viewApply(pv_value,as.numeric))),log10(unlist(viewApply(fc_value,as.numeric))))
